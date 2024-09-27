@@ -2,6 +2,7 @@
 
 using namespace std;
 
+
 Pfloat JackAve(const Vfloat &JackDistr) {
 
   int Nclusters = JackDistr.size();
@@ -24,9 +25,13 @@ double Compute_jack_cov(const Vfloat& A,const Vfloat& B) {
   double barA = JackAve(A).first;
   double barB = JackAve(B).first;
 
-  Vfloat C = Multiply_vectors(A,B);
-  double AB = JackAve(C).first;
-  return (Nclusters-1.0)*( AB - barA*barB);
+  double result=0;
+
+  for(int ijack=0;ijack<Nclusters;ijack++) result += (A[ijack]-barA)*(B[ijack]-barB);
+
+  //Vfloat C = Multiply_vectors(A,B);
+  //double AB = JackAve(C).first;
+  return (Nclusters-1.0)*result/Nclusters;
   
 }
 
@@ -81,6 +86,46 @@ void Compute_correlation_matrix(bool UseJack, Eigen::MatrixXd& Corr, int nargs,.
   return;
 }
 
+
+void Compute_autocorrelation_time(const Vfloat &data, string Path, string Tag) {
+
+  //compute empirical autocorrelation function
+
+  int N = (signed)data.size();
+
+  Vfloat rho_E(N, 0.0);
+  Vfloat log_rho_E(N,0.0);
+  Vfloat t_int(N,0.0);
+  double t_accumulated = -1.0;
+
+  for(int t=0; t< N;t++) {
+
+    double bar_x_t=0;
+    double bar_y_t=0;
+    double num=0;
+    double den=0;
+    double den1=0;
+    double den2=0;
+    for(int i=0;i< N-t;i++) bar_x_t += (1.0/(double)(N-t))*data[i];
+    for(int i=0;i< N-t;i++) bar_y_t += (1.0/(double)(N-t))*data[t+i];
+    for(int i=0;i< N-t;i++) num += (data[i] - bar_x_t)*(data[t+i]-bar_y_t);
+    for(int i=0;i< N-t;i++) {den1 += pow( data[i] - bar_x_t, 2); den2 += pow( data[t+i]-bar_y_t,2);}
+    den = sqrt( den1*den2);
+    rho_E[t] = num/den;
+    log_rho_E[t] = log(fabs(num/den));
+    t_accumulated += 2.0*num/den;
+    t_int[t] = t_accumulated;
+
+
+  }
+
+  Print_To_File({}, {rho_E, log_rho_E, t_int}, Path+"/autocorr_"+Tag+".dat", "", "");
+
+
+
+  return;
+}
+
 distr_t Jackknife::DoJack(function<double(const Vfloat&)> F, int Nobs,...) {
 
 
@@ -105,9 +150,68 @@ distr_t Jackknife::DoJack(function<double(const Vfloat&)> F, int Nobs,...) {
     for(auto &data: Copy_data) data.erase(data.begin(), data.begin()+ThermalMeasToErase);
   }
 
-    if(Copy_data.size() == 0) crash("Jackknife routine called with an empty vector");
+  if(Copy_data.size() == 0) crash("Jackknife routine called with an empty vector");
 
-   
+
+  if(Enable_fractional_jackknife) {
+
+     //crash if called with Returnblocksizemax.
+    if(ReturnBlockSizeMax) crash("DoJack called in mode fractional with Returnblocksizemax=true");
+    double bs = ((double)N)/((double)Njacks); //fractional block_size
+  
+    //get total sum
+    Vfloat total_sum(Nobs,0.0);
+    for(int iobs=0;iobs<Nobs;iobs++)
+      for(int iconf=0;iconf< N;iconf++) total_sum[iobs] += Copy_data[iobs][iconf];
+    
+    for(int ijack=0;ijack < Njacks; ijack++) {
+      //get out of the block mean erasing the block ijack of size bs
+      
+
+      //initial bin time
+      const double bin_start= ijack*bs;
+      const double bin_end = bin_start + bs;
+
+      //loop over time
+      double binPos = bin_start;
+      Vfloat data_to_cluster = total_sum;
+
+      do {
+
+	int iConf= floor(binPos + 1e-10);
+
+	//Rectangle left point
+	double lpoint = binPos;
+
+	//Rectangle right point
+	double rpoint = min(bin_end, iConf+1.0);
+
+	//Rectangle horizontal size
+	double rect_size = rpoint-lpoint;
+
+
+	//add to jack
+        for(int iobs=0; iobs <Nobs;iobs++) data_to_cluster[iobs] -= Copy_data[iobs][iConf]*rect_size;
+
+
+
+	//update position
+	binPos = rpoint;
+
+
+
+
+      } while (bin_end - binPos > 1e-10);
+      
+
+      for(int iobs=0;iobs<Nobs;iobs++) data_to_cluster[iobs] /= (double)(N - bs);
+
+      JackDistribution.distr.push_back(F(data_to_cluster));
+    }
+  }
+
+  else {
+    
   
   Vfloat sigma_obs_block(block_size_max,0);
   Vfloat mean_obs_block(block_size_max,0);
@@ -159,6 +263,7 @@ distr_t Jackknife::DoJack(function<double(const Vfloat&)> F, int Nobs,...) {
 	if(Verbose_jack) cout<<block_size<<"\t"<<mean_obs_block[block_size-1]<<"\t"<<sigma_obs_block[block_size-1]<<endl<<flush;
       }
     }
+  }
 
   return JackDistribution;
 }
@@ -191,8 +296,69 @@ distr_t Jackknife::DoJack(int Nobs,...) {
     for(auto &data: Copy_data) data.erase(data.begin(), data.begin()+ThermalMeasToErase);
   }
 
-    if(Copy_data.size() == 0) crash("Jackknife routine called with an empty vector");
+  if(Copy_data.size() == 0) crash("Jackknife routine called with an empty vector");
+  
+  
+  if(Enable_fractional_jackknife) {
+    //crash if called with Returnblocksizemax.
+    if(ReturnBlockSizeMax) crash("DoJack called in mode fractional with Returnblocksizemax=true");
+    double bs = ((double)N)/((double)Njacks); //fractional block_size
  
+    //get total sum
+    double total_sum=0.0;
+    for(int iobs=0;iobs<Nobs;iobs++)
+      for(int iconf=0;iconf< N;iconf++) total_sum += Copy_data[iobs][iconf];
+    
+    for(int ijack=0;ijack < Njacks; ijack++) {
+      //get out of the block mean erasing the block ijack of size bs
+
+
+      //initial bin time
+      const double bin_start= ijack*bs;
+      const double bin_end = bin_start + bs;
+
+      //loop over time
+      double binPos = bin_start;
+      double data_to_cluster = total_sum;
+
+      do {
+
+	int iConf= floor(binPos + 1e-10);
+
+	//Rectangle left point
+	double lpoint = binPos;
+
+	//Rectangle right point
+	double rpoint = min(bin_end, iConf+1.0);
+
+	//Rectangle horizontal size
+	double rect_size = rpoint-lpoint;
+
+
+	//add to jack
+        for(int iobs=0; iobs <Nobs;iobs++) data_to_cluster -= Copy_data[iobs][iConf]*rect_size;
+
+
+
+	//update position
+	binPos = rpoint;
+
+
+
+
+      } while (bin_end - binPos > 1e-10);
+      
+
+      data_to_cluster /= (double)(N - bs);
+
+      JackDistribution.distr.push_back(data_to_cluster);
+    }
+
+
+  }
+
+
+  else {
   
   
   Vfloat sigma_obs_block(block_size_max,0);
@@ -249,7 +415,7 @@ distr_t Jackknife::DoJack(int Nobs,...) {
       }
     }
 
- 
+  }
   
   return JackDistribution;
 }
@@ -299,13 +465,12 @@ Pfloat BootAve(const Vfloat &BootDistr) {
 
   Pfloat ave_err = make_pair(0.0,0.0);
 
-  int N= BootDistr.size();
-  for(int i=0; i<N; i++) {
-    ave_err.first += BootDistr[i]/N;
-    ave_err.second += pow(BootDistr[i],2)/N;
-  }
-  ave_err.second = sqrt( (N/(double)(N-1.0))*(ave_err.second - pow(ave_err.first,2)));
 
+  int N= BootDistr.size();
+  for(int i=0; i<N; i++)  ave_err.first += BootDistr[i]/N;
+  for(int i=0; i<N; i++) ave_err.second += pow( BootDistr[i]-ave_err.first,2)/(N-1.0);
+
+  ave_err.second = sqrt(ave_err.second);
   return ave_err;
 }
 
@@ -316,10 +481,12 @@ double Compute_boot_cov(const Vfloat& A,const Vfloat& B) {
     double barA = BootAve(A).first;
     double barB = BootAve(B).first;
 
-    Vfloat C = Multiply_vectors(A,B);
-    double AB = BootAve(C).first;
-
-    return AB- barA*barB;
+  
+    int N=A.size();
+    double res=0.0;
+    if(N != (signed)B.size()) crash("In Compute_boot_cov: A.size() != B.size()");
+    for(int i=0;i<N;i++) res += (1.0/(N-1.0))*(A[i]-barA)*(B[i] - barB); 
+    return res;
 }
 
 
@@ -373,7 +540,6 @@ vector<Pfloat> distr_t_list::ave_err() const {
 
 
   
-
 Pfloat distr_t_list::ave_err(int i_distr) const{
      if(i_distr >=  (signed)distr_list.size()) crash("In distr_t_list function ave called with positional argument greater than distr_list size");
      return distr_list[i_distr].ave_err();
@@ -684,7 +850,17 @@ distr_t_list operator+(const distr_t_list &A, const Vfloat& B) {
   return res;
 }
 
-distr_t_list operator+(const Vfloat& B, const distr_t_list& A) { return A+B;}
+distr_t_list operator-(const distr_t_list &A, const Vfloat& B) {
+  distr_t_list res(A.UseJack, A.size());
+  if(A.size() != (signed)B.size()) crash("Call to operator distr_t_list*Vfloat is invalid, sizeof(Vfloat) and size(distr_t_list) do not coincide");
+
+  for(int i=0; i<A.size();i++) res.distr_list[i] = A.distr_list[i]-B[i];
+
+  return res;
+}
+
+distr_t_list operator+(const Vfloat &B, const distr_t_list &A) { return A + B; }
+distr_t_list operator-(const Vfloat& B, const distr_t_list& A) { return -1.0*(A-B); }
 
 
 distr_t_list operator*(const distr_t_list &A, const Vfloat& B) {
@@ -699,14 +875,254 @@ distr_t_list operator*(const distr_t_list &A, const Vfloat& B) {
 distr_t_list operator*(const Vfloat& B, const distr_t_list& A) { return A*B;}
 
 
+distr_t Get_id_jack_distr(int N) {
+
+
+  distr_t id_jack_distr;
+
+  for(int i=0;i<N;i++) id_jack_distr.distr.push_back(1);
+
+  return id_jack_distr;
+}
+
+distr_t Get_id_distr(int N, bool UseJack) {
+
+
+  distr_t id_jack_distr(UseJack);
+
+  for(int i=0;i<N;i++) id_jack_distr.distr.push_back(1);
+
+  return id_jack_distr;
+}
+
+distr_t_list Get_id_jack_distr_list(int size, int N) {
+  distr_t_list return_distr(1);
+  for(int i=0; i<size;i++) return_distr.distr_list.push_back( Get_id_jack_distr(N));
+  return return_distr;
+}
+
+distr_t_list Get_id_distr_list(int size, int N, bool UseJack) {
+  distr_t_list return_distr(UseJack);
+  for(int i=0; i<size;i++) return_distr.distr_list.push_back( Get_id_distr(N,UseJack));
+  return return_distr;
+}
+
+
+distr_t AIC( const vector<distr_t> &VAL, const vector<double> &ch2, const vector<int> &Ndof, const vector<int> &Nmeas,  bool NEIL, const vector<double> &mult ) {
+
+  Vfloat MULT;
+  if(mult.size() == 1 && mult[0] == 0) { MULT.resize(VAL.size(),1);}
+  else MULT=mult;
+  
+  if( (VAL.size() != ch2.size()) || (VAL.size() != Ndof.size()) || ( Ndof.size() != Nmeas.size())) crash("AIC analysis called with vectors of different sizes");
+  
+  int N=VAL.size();
+  assert(N > 0);
+  double F= ((NEIL)?2:1);
+
+  
+  distr_t RES= 0.0*VAL[0];
+  
+  vector<double> W(N,0.0);
+  double wtot=0; double syst=0;
+  for(int i=0; i<N;i++) { W[i] = MULT[i]*exp(-0.5*( ch2[i] + 2*( Nmeas[i] - Ndof[i]) - F*Nmeas[i])); wtot += W[i]; }
+  for(int i=0; i<N;i++) { W[i] /= wtot; RES = RES + W[i]*VAL[i];}
+  for(int i=0; i<N;i++) {syst += W[i]*pow( VAL[i].ave() - RES.ave(),2); }
+  syst= sqrt(syst);
+
+  RES = RES.ave() + (sqrt(pow(syst,2)+pow(RES.err(),2))/RES.err())*(RES - RES.ave());
+ 
+ 
+  return RES;
+}
+
+
+distr_t AIC_lin( const vector<distr_t> &VAL, const vector<double> &ch2, const vector<int> &Ndof, const vector<int> &Nmeas,  bool NEIL, const vector<double> &mult ) {
+
+  Vfloat MULT;
+  if(mult.size() == 1 && mult[0] == 0) { MULT.resize(VAL.size(),1);}
+  else MULT=mult;
+
+    
+  if( (VAL.size() != ch2.size()) || (VAL.size() != Ndof.size()) || ( Ndof.size() != Nmeas.size())) crash("AIC analysis called with vectors of different sizes");
+
+  int N=VAL.size();
+  assert(N > 0);
+  double F= ((NEIL)?2:1);
+   
+  distr_t RES= 0.0*VAL[0];
+
+  vector<double> W(N,0.0);
+  double wtot=0; double syst=0;
+  for(int i=0; i<N;i++) { W[i] = MULT[i]*exp(-0.5*( ch2[i] + 2*( Nmeas[i] - Ndof[i]) - F*Nmeas[i])); wtot += W[i]; }
+  for(int i=0; i<N;i++) { W[i] /= wtot; RES = RES + W[i]*VAL[i];}
+  for(int i=0; i<N;i++) {syst += W[i]*pow( VAL[i].ave() - RES.ave(),2); }
+  syst= sqrt(syst);
+
+  RES = RES + (syst/RES.err())*(RES - RES.ave());
+ 
+ 
+  return RES;
+  
+   
+
+}
+
+distr_t BMA_uniform( const vector<distr_t> &VAL, const vector<double> &ch2, const vector<int> &Ndof, const vector<int> &Nmeas, double ch2_th) {
+
+
+  
+  if( (VAL.size() != ch2.size()) || (VAL.size() != Ndof.size()) || ( Ndof.size() != Nmeas.size())) crash("AIC analysis called with vectors of different sizes");
+
+  int N=VAL.size();
+  
+  distr_t RES= 0.0*VAL[0];
+  
+  vector<double> W(N,0.0);
+  double wtot=0; double syst=0;
+  for(int i=0; i<N;i++) { W[i] = ((ch2[i]/Ndof[i] < ch2_th)?1.0:0) ; wtot += W[i]; }
+  for(int i=0; i<N;i++) { W[i] /= wtot; RES = RES + W[i]*VAL[i];}
+  for(int i=0; i<N;i++) {syst += W[i]*pow( VAL[i].ave() - RES.ave(),2); }
+  syst= sqrt(syst);
+
+  RES = RES.ave() + (sqrt(pow(syst,2)+pow(RES.err(),2))/RES.err())*(RES - RES.ave());
+ 
+ 
+  return RES;
+}
+
+distr_t BMA_Eq_29( const vector<distr_t> &VAL) {
+
+
+  
+ 
+  int N=VAL.size();
+  
+  distr_t RES= 0.0*VAL[0];
+  
+  vector<double> W(N,0.0);
+  double wtot=0; double syst=0;
+  for(int i=0; i<N;i++) { W[i] = 1.0/N ; wtot += W[i]; }
+  for(int i=0; i<N;i++) { W[i] /= wtot; RES = RES + W[i]*VAL[i];}
+  for(int i=0; i<N;i++) {syst += W[i]*pow( VAL[i].ave() - RES.ave(),2); }
+  syst= sqrt(syst);
+
+  RES = RES.ave() + (sqrt(pow(syst,2)+pow(RES.err(),2))/RES.err())*(RES - RES.ave());
+ 
+ 
+  return RES;
+
+
+}
 
 
 
 
+distr_t_list EXP_DL (const distr_t_list &A) {
+  distr_t_list B = A;
+  for (int t = 0; t < A.size(); t++)
+    for (int i = 0; i < A.distr_list[t].size(); i++)
+      B.distr_list[t].distr[i] = exp(A.distr_list[t].distr[i]);
+  return B;
+}
+
+distr_t_list EXPT_DL(const distr_t_list &A) {
+  distr_t_list B = A;
+  for (int t = 0; t < A.size(); t++)
+    for (int i = 0; i < A.distr_list[t].size(); i++)
+      B.distr_list[t].distr[i] = exp(A.distr_list[t].distr[i]*t);
+  return B;
+}
 
 
+distr_t_list COSH_DL (const distr_t_list &A) {
+  distr_t_list B = A;
+  for (int t = 0; t < A.size(); t++)
+    for (int i = 0; i < A.distr_list[t].size(); i++)
+      B.distr_list[t].distr[i] = cosh(A.distr_list[t].distr[i]);
+  return B;
+}
+
+distr_t_list SINH_DL (const distr_t_list & A) { distr_t_list B=A;
+      for(int t=0;t<A.size();t++)
+	for(int i=0;i<A.distr_list[t].size();i++) B.distr_list[t].distr[i] = sinh(A.distr_list[t].distr[i]);
+      return B;
+ }
+
+distr_t_list SQRT_DL (const distr_t_list &A) {
+  distr_t_list B = A;
+  for(int t=0;t<A.size();t++)
+    for(int i=0;i<A.distr_list[t].size();i++)
+      B.distr_list[t].distr[i] = sqrt(A.distr_list[t].distr[i]);
+  return B;
+}
+
+distr_t_list LOG_DL (const distr_t_list &A) {
+  distr_t_list B = A;
+  for(int t=0;t<A.size();t++)
+    for(int i=0;i<A.distr_list[t].size();i++)
+      B.distr_list[t].distr[i] = log(A.distr_list[t].distr[i]);
+  return B;
+}
+
+distr_t_list POW_DL (const distr_t_list &A, int n) {
+  distr_t_list B = A;
+  for(int t=0;t<A.size();t++)
+    for(int i=0;i<A.distr_list[t].size();i++)
+      B.distr_list[t].distr[i] = pow(A.distr_list[t].distr[i],n);
+  return B;
+}
 
 
+distr_t_list EXPT_D(const distr_t &A, int T) {
+  distr_t_list B(A.UseJack, T, A.size()); 
+  for (int t = 0; t < T; t++)
+    for (int i = 0; i < A.size(); i++)
+      B.distr_list[t].distr[i] = exp(A.distr[i]*t);
+  return B;
+}
 
+
+distr_t EXP_D (const distr_t &A) {
+  distr_t B = A;
+  for (int i = 0; i < A.size(); i++)
+    B.distr[i] = exp(A.distr[i]);
+  return B;
+}
+
+distr_t COSH_D (const distr_t &A) {
+  distr_t B = A;
+  for (int i = 0; i < A.size(); i++)
+    B.distr[i] = cosh(A.distr[i]);
+  return B;
+}
+
+distr_t SINH_D (const distr_t &A) {
+  distr_t B = A;
+  for (int i = 0; i < A.size(); i++)
+    B.distr[i] = sinh(A.distr[i]);
+  return B;
+}
+
+distr_t LOG_D (const distr_t &A) {
+  distr_t B = A;
+  for (int i = 0; i < A.size(); i++)
+    B.distr[i] = log(A.distr[i]);
+  return B;
+}
+
+distr_t SQRT_D (const distr_t &A) {
+  distr_t B = A;
+  for (int i = 0; i < A.size(); i++)
+    B.distr[i] = sqrt(A.distr[i]);
+  return B;
+}
+
+distr_t POW_D (const distr_t  &A,int n) {
+  distr_t B = A;
+  for (int i = 0; i < A.size(); i++)
+    B.distr[i] = pow(A.distr[i],n);
+  return B;
+}
 
 

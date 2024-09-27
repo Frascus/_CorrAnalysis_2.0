@@ -1,0 +1,22 @@
+#ifndef __scale_setting_main__
+#define __scale_setting_main__
+
+
+#include "g_minus_2_utilities.h"
+#include "Bootstrap_fit.h"
+#include "scale_setting.h"
+#include "binary_io.h"
+
+
+
+
+using namespace std;
+
+
+void Get_scale_setting() ;
+
+
+
+
+
+#endif

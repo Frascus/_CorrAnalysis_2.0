@@ -81,6 +81,8 @@ int Get_symmetric_comb(struct header_virph &header, int icomb) ;
 
 int Get_comb_k0(struct  header_virph &header, int icomb);
 
+int Get_comb_k0_same_off(struct header_virph &header, int icomb);
+
 int Get_2pt_k0p0(struct header_virph &header,double mu1, double mu2);
 
 int Get_2pt_p(struct header_virph &header, int i0, int is);

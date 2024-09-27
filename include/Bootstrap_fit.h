@@ -3,6 +3,7 @@
 
 
 #include "numerics.h"
+#include "stat.h"
 
 using namespace std;
 
@@ -12,12 +13,32 @@ class boot_fit_data {
 public:
   
   boot_fit_data() {}
-  
+  void ch2_ave() {
+    double ch2=0.0, err_ch2=0.0;
+    double N= (double)chi2.size();
+    for(auto &c :chi2) {ch2+=c/N; err_ch2 += c*c/N;}
+    cout<<"average bootstrap chi2: "<<ch2<<" +- "<<sqrt( ((N-1.0)/N)*(err_ch2- ch2*ch2))<<endl;
+    return;
+  }
+  double get_ch2_ave() {
+    double ch2=0.0;
+    double N= (double)chi2.size();
+    for(auto &c :chi2) ch2+=c/N;
+    return ch2;
+  }
+
+  double get_ch2_err() {
+    distr_t ch2_distr;
+    for(int i=0;i<(signed)chi2.size();i++) ch2_distr.distr.push_back( chi2[i]);
+    return ch2_distr.err();
+
+  }
   Vfloat chi2;
   Vfloat EDM;
   Vfloat N_it;
   vector<bool> IsValid;
   vector<T> par;
+
 };
 
 
@@ -29,10 +50,10 @@ template <class T1, class T2>
 class bootstrap_fit : public ROOT::Minuit2::FCNBase  {
   
 public:
- bootstrap_fit():  theErrorDef(1.0), NumberOfMeasurements(0) {
-    this->PATH="chi2.out"; this->verbose=0;
+  bootstrap_fit():  theErrorDef(1.0), NumberOfMeasurements(0), warm_up(0) {
+    this->PATH="chi2.out"; this->verbose=0; this->Use_Cov_Matrix=false;
   }
- bootstrap_fit(int nb) :  Input_pars(nb), theErrorDef(1.0), NumberOfMeasurements(0), nboots(nb) { this->PATH="chi2.out"; this->verbose=0;}
+  bootstrap_fit(int nb) :  Input_pars(nb), theErrorDef(1.0), NumberOfMeasurements(0), nboots(nb), warm_up(0) { this->PATH="chi2.out"; this->verbose=0; this->Use_Cov_Matrix=false;}
  
   virtual ~bootstrap_fit() {}
   function<double(const T1& p, const T2 &ip)> ansatz;
@@ -46,10 +67,13 @@ public:
   
   void setErrorDef(double def) {theErrorDef = def;}
   void Add_par(string Name, double val, double err);
+  void Set_par_val(string Name, double val);
+  void Set_par_val(string Name, double val, double err);
   void Add_prior_par(string Name, double val, double err);
   void Add_prior_pars(const vector<string>& Names);
   void Append_to_prior(string Name, double val, double err);
   void Fix_par(string Name, double val);
+  void Release_par(string Name);
   void Fix_par(string Name) { Fix_par(Name, nan("1"));};
   void Append_to_input_par(vector<vector<T2>> values) {this->Input_pars = values;}
   void Append_to_input_par(vector<T2> val) { this->Input_pars[*ib] = val;}
@@ -65,7 +89,22 @@ public:
   void Fix_n_release(string A, double val) {this->To_release.insert(make_pair(A, val));}
   void Fix_n_release(string A) {Fix_n_release(A, nan("1"));}
   void Fix_n_release(const vector<string> &A) { for( auto &p:A) Fix_n_release(p);}
+  int Get_number_of_fit_pars() { return PNames.size()  - Fixed_pars.size() -To_release.size();}
+  void Set_limits(string Name, double val_1, double val_2) {
+
+    PList.SetLimits(Name, val_1,val_2);
+    return;  
+  }
   int P(string A) const ;
+  void set_warmup() {warm_up=true;};
+  void set_warmup_lev(int ilev) {if(ilev <0) crash("cannot set warm up lev to negative number");warm_up=ilev;}
+  void Set_print_path(string A) { this->PATH = A;}
+  void Add_covariance_matrix(Eigen::MatrixXd M) {
+    this->Use_Cov_Matrix=true;
+    if( M.rows() != NumberOfMeasurements) crash("Size of covariant matrix and number of measurements do not match");
+    this->Cov_matrix_inv= M.inverse();
+  }
+  void Disable_correlated_fit() { this->Use_Cov_Matrix=false;}
 
 
   
@@ -73,8 +112,7 @@ public:
   int* ib;
 
  private:
-  ROOT::Minuit2::MnUserParameters PList;
-  
+  ROOT::Minuit2::MnUserParameters PList; 
   map<string, double> To_release;
   map<string, int> PNames;
   map<string, double> Fixed_pars;
@@ -87,6 +125,9 @@ public:
   bool PRINT;
   string TAG;
   string PATH;
+  int warm_up;
+  bool Use_Cov_Matrix;
+  Eigen::MatrixXd Cov_matrix_inv;
  
   
 };
@@ -102,26 +143,46 @@ double bootstrap_fit<T1, T2>::operator()(const Vfloat& par) const {
       PrintChi<<"#############################################"<<endl;
       PrintChi<<this->TAG<<endl;
     }
-    while(pos<NumberOfMeasurements)  {
+
+
+    if(Use_Cov_Matrix) {
+      for(int i=0;i<NumberOfMeasurements;i++) {
+	T1 pp(par);
+	double ansatz_i= this->ansatz(pp, Input_pars[*ib][i]);
+	double measurement_i = this->measurement(pp, Input_pars[*ib][i]);
+	double res_i = 0;
+	for(int j=0;j<NumberOfMeasurements;j++) {
+	  double ansatz_j = this->ansatz(pp, Input_pars[*ib][j]);
+	  double measurement_j = this->measurement(pp, Input_pars[*ib][j]);
+	  double res= (ansatz_i -measurement_i)*Cov_matrix_inv(i,j)*(ansatz_j-measurement_j);
+	  chi2+=res;
+	  res_i+=res;
+	}
+	if(PRINT) PrintChi<<i<<setw(20)<<ansatz_i<<setw(20)<<measurement_i<<setw(20)<<res_i<<endl;
+      }
+    }
+    
+    else {
+      while(pos<NumberOfMeasurements)  {
       T1 pp(par);
       // for(unsigned int pi=0;pi<par.size();pi++) if(isnan(par[pi])) crash("par nr: "+to_string(pi)+" is nan, bootstrap: "+to_string(*ib));
       double ansatz = this->ansatz(pp, Input_pars[*ib][pos]);
       double measurement = this->measurement(pp, Input_pars[*ib][pos]);
       double error = this->error(pp, Input_pars[*ib][pos]);
-    
-     
-      
+          
       double res = pow( (ansatz-measurement)/error,2);
       if(PRINT) PrintChi<<pos<<setw(20)<<ansatz<<setw(20)<<measurement<<setw(20)<<error<<setw(20)<<res<<endl;
       chi2+=res;
       pos++;
+      }
     }
 
     if(PRINT) PrintChi<<"chi2 w.o. priors: "<<chi2<<endl;
     //Add Gaussian Prior
     for(auto const& [key, val] : this->Priors) {
-      if(PRINT) PrintChi<<key<<setw(20)<<par[P(key)]<<setw(20)<<val[*ib].first<<setw(20)<<val[*ib].second<<endl;
-      chi2 += pow((par[P(key)]- val[*ib].first)/val[*ib].second,2);
+      double ch2_pr = pow((par[P(key)]- val[*ib].first)/val[*ib].second,2);
+      if(PRINT) PrintChi<<key<<setw(20)<<par[P(key)]<<setw(20)<<val[*ib].first<<setw(20)<<val[*ib].second<<setw(20)<<ch2_pr<<endl;
+      chi2 += ch2_pr;
     }
     if(PRINT) PrintChi<<"chi_2: "<<chi2<<endl;
     if(PRINT) PrintChi.close();
@@ -164,6 +225,7 @@ void bootstrap_fit<T1,T2>::Append_to_prior(string Name, double val, double err) 
 }
 
 
+
 template <class T1, class T2> 
 void bootstrap_fit<T1,T2>::Add_par(string Name, double val, double err) {
     PList.Add(Name, val, err);
@@ -171,6 +233,20 @@ void bootstrap_fit<T1,T2>::Add_par(string Name, double val, double err) {
     PNames.insert( pair<string,int>(Name, Position));
     return; 
   }
+
+template <class T1, class T2> 
+void bootstrap_fit<T1,T2>::Set_par_val(string Name, double val) {
+    PList.SetValue(Name, val);
+    return; 
+  }
+
+template <class T1, class T2> 
+void bootstrap_fit<T1,T2>::Set_par_val(string Name, double val, double err) {
+    PList.SetValue(Name, val);
+    PList.SetError(Name,val);
+    return; 
+  }
+
 
 template <class T1, class T2> 
 void bootstrap_fit<T1,T2>::Add_prior_pars(const vector<string> &Names) {
@@ -215,6 +291,14 @@ void bootstrap_fit<T1,T2>::Fix_par(string Name, double val) {
 
 
 template <class T1, class T2> 
+void bootstrap_fit<T1,T2>::Release_par(string Name) {
+
+  Fixed_pars.erase(Name);
+  return;  
+}
+
+
+template <class T1, class T2> 
 boot_fit_data<T1> bootstrap_fit<T1,T2>::Perform_bootstrap_fit() {
 
   boot_fit_data<T1> boot_result;
@@ -222,7 +306,7 @@ boot_fit_data<T1> bootstrap_fit<T1,T2>::Perform_bootstrap_fit() {
   int boot_index=0;
   ib = &boot_index;
 
-  ROOT::Minuit2::MnMigrad migrad(*this, PList, 2);
+  ROOT::Minuit2::MnMigrad migrad(*this, PList, 3);
   
   
   
@@ -246,6 +330,8 @@ boot_fit_data<T1> bootstrap_fit<T1,T2>::Perform_bootstrap_fit() {
     
     //fit
     ROOT::Minuit2::FunctionMinimum chi2 = migrad();
+    //warmup
+    for(int i=0;i<warm_up;i++) chi2=migrad();
 
     if(verbose) { //print chi^2 details
       this->PRINT= true;
@@ -262,8 +348,8 @@ boot_fit_data<T1> bootstrap_fit<T1,T2>::Perform_bootstrap_fit() {
     for(auto & [key, val] : To_release) migrad.Release(key.c_str());
 
     
-    //refit
-    chi2 = migrad();
+    //refit with warm_up warmups
+    for(int i=0;i< warm_up+1;i++)  chi2 = migrad();
     boot_result.chi2.push_back(chi2.Fval());
     boot_result.EDM.push_back(chi2.Edm());
     boot_result.N_it.push_back(chi2.NFcn());
@@ -331,10 +417,16 @@ int bootstrap_fit<T1,T2>::P(string A) const {
 
 double Boot_ave(Vfloat& A);
 Pfloat Boot_ave_err(Vfloat& A);
+Pfloat Boot_ave_err(Vfloat& A, bool mode);
 double Boot_err(Vfloat& A) ;
+double Boot_err(Vfloat& A, bool mode);
 Pfloat Boot_ave_err(VVfloat& A) ;
+Pfloat Boot_ave_err(VVfloat& A, bool mode);
+Pfloat Boot_ave_err(VVfloat& A, double resc, bool mode);
 double Boot_ave(VVfloat& A) ;
 double Boot_err(VVfloat& A);
+double Boot_err(VVfloat& A, bool mode);
+double Boot_err(VVfloat& A, double resc, bool mode);
 
 
 

@@ -7,7 +7,7 @@ namespace plt = matplotlibcpp;
 const double MPiPhys=0.135;
 const bool Use_JB_distribution= false;
 const bool UseJack=1;
-const int Njacks=15;
+const int Njacks=100;
 const int Nboots=200;
 
 
@@ -285,13 +285,17 @@ distr_t_list M1_disc(VVfloat& disco, VVfloat& b1, VVfloat& b2) {
 
 
 void Axion_l7_analysis() {
-  
+
+
+
+
   data_t pi_data_r0,pi_data_r1, IE1_data, IE2_data, IH1_data, IH2_data, M2_conn_data, M2_disc_data, M2_b1_data, M2_b2_data, IB_S0P5_data, pi_data_OS;
    pi_data_r0.Read("../datasets_axion_M2", "mes_contr_00_r0", "P5P5");
-   
+
    IE1_data.Read("../datasets_axion_M2", "mes_contr_IE1", "P5P5");
- 
+
    IH1_data.Read("../datasets_axion_M2", "mes_contr_IH1", "S0P5");
+
    IB_S0P5_data.Read("../datasets_axion_M2", "mes_contr_IB_S0P5", "S0P5");
    pi_data_OS.Read("../datasets_axion_M2", "mes_contr_01_r0", "P5P5");
  
@@ -306,7 +310,7 @@ void Axion_l7_analysis() {
   
 
   
-    
+
     
   
   int Nens = pi_data_r0.size;  //== dm_exch_data.size .....
@@ -537,7 +541,8 @@ void Axion_l7_analysis() {
     cout<<"Zp/Zs: "<<Zp_ov_Zs_fit.ave()<<"("<<Zp_ov_Zs_fit.err()<<")"<<endl;
     cout<<"pi+ mass: "<<Pi_plus_fit.ave()<<" "<<Pi_plus_fit.err()<<endl;
     cout<<"pi OS mass: "<<Pi_OS_fit.ave()<<" "<<Pi_OS_fit.err()<<endl;
-    cout<<"f0: "<<f0.ave()<<endl;
+    cout<<"f0 (charged pion): "<<f0.ave()<<"("<<f0.err()<<")"<<endl;
+    cout<<"Z_pipi (charged pion): "<<sqrt_overlap_pi.ave()<<"("<<sqrt_overlap_pi.err()<<")"<<endl;
     //cout<<"dm: "<<Fit_result.ave()<<"("<<Fit_result.err()<<")"<<endl;
     distr_t l7 =  1.0*(1.0/(Zp_ov_Zs_fit*Zp_ov_Zs_fit))*f0*f0*Fit_result*(1.0/(Pi_plus_fit*Pi_plus_fit*Pi_plus_fit))*(m*m);
     distr_t l7_tanh=  1.0*(1.0/(Zp_ov_Zs_fit*Zp_ov_Zs_fit))*f0*f0*Global_r0_eff_slope_from_tanh*(1.0/(Pi_plus_fit*Pi_plus_fit*Pi_plus_fit))*(m*m);

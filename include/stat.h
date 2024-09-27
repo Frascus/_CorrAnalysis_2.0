@@ -15,6 +15,7 @@ Pfloat JackAve(const Vfloat &JackDistr);
 double Compute_jack_cov(const Vfloat&,const Vfloat&);
 void Compute_covariance_matrix(bool UseJack, Eigen::MatrixXd& Cov, int nargs,...);
 void Compute_correlation_matrix(bool UseJack, Eigen::MatrixXd& Corr, int nargs,...);
+void Compute_autocorrelation_time(const Vfloat& data, string Path, string Tag);
   
 
 
@@ -24,10 +25,10 @@ void Compute_correlation_matrix(bool UseJack, Eigen::MatrixXd& Corr, int nargs,.
 class distr_t {
 
  public:
- distr_t()  {}
- distr_t(bool a) : UseJack(a) {}
- distr_t(bool a, Vfloat b) : UseJack(a), distr(b) {}
- distr_t(bool a, int size) : UseJack(a), distr(size,0.0) {}
+  distr_t()  {UseJack = 1;}
+  distr_t(bool a) : UseJack(a) {}
+  distr_t(bool a, Vfloat b) : UseJack(a), distr(b) {}
+  distr_t(bool a, int size) : UseJack(a), distr(size,0.0) {}
 
  //////////////////////////////////////////
 
@@ -95,7 +96,7 @@ distr_t operator/(const Vfloat& B, const distr_t& A);
 class distr_t_list {
 
  public:
-  distr_t_list() {}
+  distr_t_list() {UseJack=1;}
   distr_t_list( bool sampling_type, int size) :  UseJack(sampling_type) {
     for(int i_distr=0; i_distr<size;i_distr++) distr_list.emplace_back(sampling_type);
   }
@@ -140,6 +141,42 @@ class distr_t_list {
 
    return RET;
  }
+
+  static distr_t_list derivative(const distr_t_list& D_List, int mode) {
+    
+    int NT= D_List.size();
+    distr_t_list RET(D_List.UseJack, NT);
+    for(int t=0; t<RET.size();t++) {
+      for(int k=0;k< D_List.distr_list[t].size();k++) {
+	double der_value;
+	int t_plus = (t+1)%NT;
+	int t_minus = (t-1+NT)%NT;
+	double D_plus = D_List.distr_list[t_plus].distr[k];
+	double D_0 = D_List.distr_list[t].distr[k];
+	double D_minus = D_List.distr_list[t_minus].distr[k];
+
+	if(mode==0) { //central derivative
+	  der_value = (D_plus-D_minus)/2.0;
+	}
+	else if(mode==1) { //forward derivative
+	  der_value = D_plus-D_0;
+	}
+
+	else if(mode==-1) { //backward derivative
+	  der_value = D_0 - D_minus;
+	}
+
+	else crash("In static distr_t_list::derivative mode: "+to_string(mode)+" not yet implemented");
+
+	RET.distr_list[t].distr.push_back(der_value);
+
+      }
+
+
+    }
+
+    return RET;
+  }
  
 
 
@@ -202,9 +239,11 @@ distr_t_list operator/(const distr_t_list& A, double B);
   
 distr_t_list operator/(double B, const distr_t_list& A);
 
-distr_t_list operator+(const distr_t_list &A, const Vfloat& B);
+distr_t_list operator+(const distr_t_list &A, const Vfloat &B);
+distr_t_list operator-(const distr_t_list &A, const Vfloat& B);
 
-distr_t_list operator+(const Vfloat& B, const distr_t_list& A) ;
+distr_t_list operator+(const Vfloat &B, const distr_t_list &A);
+distr_t_list operator-(const Vfloat& B, const distr_t_list& A);
 
 
 distr_t_list operator*(const distr_t_list &A, const Vfloat& B);
@@ -224,6 +263,7 @@ class Jackknife {
     this->Njacks= Njacks;
     Verbose_jack=0;
     ReturnBlockSizeMax=0;
+    Enable_fractional_jackknife= true;
     }
   distr_t DoJack(int , ...);
   distr_t DoJack(function<double(const Vfloat&)> F, int Nobs, ... );
@@ -236,6 +276,7 @@ class Jackknife {
   int Verbose_jack;
   int Njacks;
   bool ReturnBlockSizeMax;
+  bool Enable_fractional_jackknife;
 
 
 } ;
@@ -272,6 +313,30 @@ class Bootstrap {
 } ;
 
 
+distr_t Get_id_jack_distr(int N);
+distr_t_list Get_id_jack_distr_list(int size, int N);
+distr_t Get_id_distr(int N, bool UseJack);
+distr_t_list Get_id_distr_list(int size, int N, bool UseJack);
+distr_t AIC( const vector<distr_t> &VAL, const vector<double> &ch2, const vector<int> &Ndof, const vector<int> &Nmeas, bool NEIL=false , const vector<double> &mult= vector<double>(1,0) );
+distr_t AIC_lin( const vector<distr_t> &VAL, const vector<double> &ch2, const vector<int> &Ndof, const vector<int> &Nmeas, bool NEIL=false, const vector<double> &mult= vector<double>(1,0));
+distr_t BMA_uniform( const vector<distr_t> &VAL, const vector<double> &ch2, const vector<int> &Ndof, const vector<int> &Nmeas, double ch2_th);
+distr_t BMA_Eq_29( const vector<distr_t> &VAL);
+
+distr_t_list EXP_DL(const distr_t_list &A);
+distr_t_list EXPT_DL(const distr_t_list &A);
+distr_t_list COSH_DL(const distr_t_list &A);
+distr_t_list SINH_DL(const distr_t_list &A);
+distr_t_list SQRT_DL(const distr_t_list &A);
+distr_t_list LOG_DL(const distr_t_list &A);
+distr_t_list POW_DL(const distr_t_list &A, int n);
+
+distr_t_list EXPT_D(const distr_t &A, int T);
+distr_t EXP_D(const distr_t &A);
+distr_t COSH_D(const distr_t &A);
+distr_t SINH_D(const distr_t &A);
+distr_t SQRT_D(const distr_t &A);
+distr_t LOG_D(const distr_t &A);
+distr_t POW_D(const distr_t &A, int n);
 
 
 

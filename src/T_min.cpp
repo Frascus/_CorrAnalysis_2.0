@@ -7,7 +7,7 @@ double T_fit::operator()(const Vfloat& par) const {
 
    double ch2=0.0;
    for(int i_meas=0; i_meas < NumberOfMeasurements;i_meas++) {
-    ch2+= pow( (this->ansatz(par,X[i_meas])-Y[i_meas])/Y_err[i_meas],2);
+     ch2+= pow( (this->ansatz(par,X[i_meas],i_meas)-Y[i_meas])/Y_err[i_meas],2);
    }
 
    return ch2;
@@ -30,6 +30,7 @@ ROOT::Minuit2::MnUserParameters Param_List;
    else Param_List.Add(par_name, par, fabs(par)/10.0);
    count_par++;
  }
+
 
  ROOT::Minuit2::MnMigrad migrad(*this, Param_List, 2);
 

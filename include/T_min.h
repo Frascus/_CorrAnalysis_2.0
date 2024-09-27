@@ -32,7 +32,7 @@ public:
  
  
   virtual ~T_fit() {}
-  function<double(const Vfloat &ip, double x)> ansatz;
+  function<double(const Vfloat &ip, double x, int imeas)> ansatz;
   virtual double Up() const {return theErrorDef;}
   virtual double operator()(const Vfloat& par) const;
   void add_pars(double a) {init_pars.push_back(a);}

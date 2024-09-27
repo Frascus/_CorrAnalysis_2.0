@@ -155,6 +155,50 @@ int Get_comb_k0(struct  header_virph &header, int icomb){
    
         
     return ci;
+}
+
+int Get_comb_k0_same_off(struct  header_virph &header, int icomb){
+    int ci=-1;
+    int found=0;
+    int foundk;
+          
+    for (int i =0; i<header.ncomb;i++ ){
+        foundk=0;
+        for (int k=0; k<3;k++){
+            if (fabs(header.comb[i].th0[k]-header.comb[i].tht[k] )<1e-7){
+                if (fabs(header.comb[i].th0[k]-header.comb[icomb].th0[k] )<1e-7)
+                if (fabs(header.comb[i].ths[k]-header.comb[icomb].ths[k] )<1e-7)
+                if (fabs(header.comb[i].mu1-header.comb[icomb].mu1 )<1e-7)    
+                if (fabs(header.comb[i].mu2-header.comb[icomb].mu2 )<1e-7)        
+		  if (fabs(header.comb[i].off- header.comb[icomb].off) < 1e-7){
+                    foundk++;
+                }
+            }
+                    
+        }
+        if (foundk==3){
+            ci=i;
+            found++;
+        }
+          
+    }
+    
+    if (found!=1){
+        auto c=header.comb[icomb];
+        printf("icomb=%d\n",icomb);
+        printf("i0 it is=%d  %d  %d\n",c.i0,c.it,c.is);
+        printf("mu0  mut  off=%f  %f  %f\n",c.mu1,c.mu2,c.off);
+        printf("th0=%f  %f  %f\n",c.th0[0],c.th0[1],c.th0[2]);
+        printf("tht=%f  %f  %f\n",c.tht[0],c.tht[1],c.tht[2]);
+        printf("ths=%f  %f  %f\n",c.ths[0],c.ths[1],c.ths[2]);
+        printf("find_icomb_with_k0\n");
+	printf("ci: %d\n", ci);
+        printf("Get_comb_k0_same_off: Error in find the combination with kz=0 and same offshellness");
+    }
+
+    if( found != 1) return -1;
+        
+    return ci;
 } 
 
 int Get_2pt_k0p0(struct header_virph &header,double mu1, double mu2) {
@@ -210,8 +254,13 @@ VVfloat Get_obs_2pt(FILE *stream, struct header_virph &header, int ire,int icomb
   int file_size_bytes = ftell(stream);
   int block_size_bytes = sizeof(int) + sizeof(double)*(2*header.tmax*header.ninv*header.ninv*header.nqsml*ncorr);
   int nconfs = (file_size_bytes-tmp)/block_size_bytes;
-  if( (file_size_bytes-tmp)%block_size_bytes != 0) crash(" In Get_obs_2pt block_data_size does not divide file_size- header_size");
-  
+  if( (file_size_bytes-tmp)%block_size_bytes != 0) {
+    cout<<"file size bytes: "<<file_size_bytes<<endl;
+    cout<<"block size bytes: "<<block_size_bytes<<endl;
+    cout<<"header size: "<<tmp<<endl;
+    cout<<"nconfs: "<<nconfs<<endl;
+    crash(" In Get_obs_2pt block_data_size does not divide file_size- header_size");
+  }
   
   VVfloat obs(Nt);
   for(auto &o: obs) o.resize(nconfs);
@@ -255,7 +304,7 @@ VVfloat Get_obs_3pt(FILE *stream, struct header_virph &header, int ire, int icom
 
   if(smearing_level >= header.nqsml) crash("In Get_obs_3pt: smearing level: "+to_string(smearing_level)+" not yet present. Aborting. ");
 
-  if(icomb >= header.ncomb) crash("In Get_obs_2pt: icomb > ncomb");
+  if(icomb >= header.ncomb) crash("In Get_obs_3pt: icomb > ncomb");
 
   fseek(stream, 0, SEEK_END);
   int file_size_bytes = ftell(stream);
@@ -319,7 +368,19 @@ int Get_number_of_configs_2pt(FILE* stream, struct header_virph& header) {
   int file_size_bytes = ftell(stream);
   int block_size_bytes = sizeof(int) + sizeof(double)*(2*header.tmax*header.ninv*header.ninv*header.nqsml*ncorr);
   int nconfs = (file_size_bytes-tmp)/block_size_bytes;
-  if( (file_size_bytes-tmp)%block_size_bytes != 0) crash(" In Get_number_of_configs_2pt block_data_size does not divide file_size- header_size");
-
+  if( (file_size_bytes-tmp)%block_size_bytes != 0) {
+    cout<<endl;
+    cout<<"header.tmax: "<<header.tmax<<endl;
+    cout<<"header.ninv: "<<header.ninv<<endl;
+    cout<<"header.neinv: "<<header.neinv<<endl;
+    cout<<"header.ncomb: "<<header.ncomb<<endl;
+    cout<<"header.nqsml: "<<header.nqsml<<endl;
+    cout<<"file size bytes: "<<file_size_bytes<<endl;
+    cout<<"block size bytes: "<<block_size_bytes<<endl;
+    cout<<"header size: "<<tmp<<endl;
+    cout<<"nconfs: "<<nconfs<<endl;
+    crash(" In Get_number_of_configs_2pt block_data_size does not divide file_size- header_size");
+  }
+    
   return nconfs;
 }

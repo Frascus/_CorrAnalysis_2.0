@@ -73,8 +73,8 @@ void Pion_mass_analysis(string CURRENT_TYPE, bool IncludeDisconnected) {
   
   data_t m_data, dm_exch_data, dm_hand_data, m_data_hand_run;
   if(CURRENT_TYPE=="CONSERVED")  {
-    m_data.Read("../datasets", "mes_contr_00", "P5P5");
-    dm_exch_data.Read("../datasets", "mes_contr_LL", "P5P5");
+    m_data.Read("../datasets/data", "mes_contr_00", "P5P5");
+    dm_exch_data.Read("../datasets/data", "mes_contr_LL", "P5P5");
   }
   else if (CURRENT_TYPE=="LOCAL") { //current is local
     // m_data.Read("../datasets", "mes_contr_00", "P5P5");
@@ -140,9 +140,9 @@ void Pion_mass_analysis(string CURRENT_TYPE, bool IncludeDisconnected) {
       distr_t_list Dm_hand_non_stoch= Corr.corr_t(dm_hand_data.col(0)[i], "");
       distr_t_list ratio_non_stoch = Dm_hand_non_stoch/Mpi_non_stoch;
       cout<<"stoch:"<<endl;
-      for (int t=0;t<Corr_stoch.Nt;t++) cout<<t<<"  "<<ratio.ave()[t]<<" "<<ratio.err()[t]<<endl;
+      for (int t=0;t<Corr_stoch.Nt;t++) cout<<t<<"  "<<(e2/2.0)*ratio.ave()[t]<<" "<<(e2/2.0)*ratio.err()[t]<<endl;
       cout<<"non_stoch:"<<endl;
-      for (int t=0; t<Corr.Nt;t++) cout<<t<<"  "<<ratio_non_stoch.ave()[t]<<"  "<<ratio_non_stoch.err()[t]<<endl;
+      for (int t=0; t<Corr.Nt;t++) cout<<t<<"  "<<(e2/2.0)*ratio_non_stoch.ave()[t]<<"  "<<(e2/2.0)*ratio_non_stoch.err()[t]<<endl;
       cout<<"Handcuff diagram from stochastic photon computed!"<<endl;
       }
       
@@ -289,15 +289,16 @@ void Pion_mass_analysis(string CURRENT_TYPE, bool IncludeDisconnected) {
   bf.Add_par("Dm", 0.5, 1e-3);
   bf.Add_par("F_a", 2.5, 0.1);
   bf.Add_par("log_a", 0.1, 1e-3);
-  bf.Add_par("F_m", 2.5, 0.1);
+  bf.Add_par("F_m", 3.0, 0.1);
   bf.Add_par("A_2", 1.0, 0.01);
   bf.Add_prior_par("f0", 0.121, 1e-3);
   bf.Add_prior_pars({"ainv0", "ainv1", "ainv2", "Zv0", "Zv1", "Zv2", "Za0", "Za1", "Za2"});
     
   //Fix some parameters to make test
-  bf.Fix_par("F_m",0.0);
+  bf.Fix_par("F_m",1.0);
   bf.Fix_par("Dm",0.0);
-  // bf.Fix_par("D",0.0);
+  //bf.Fix_par("D",0.0);
+  //bf.Fix_par("F_a", 0.0);
   bf.Fix_par("log_a", 0.0);
   bf.Fix_par("A_2", 0.0);
   //bf.Fix_par("log", 0.0);
@@ -355,17 +356,26 @@ void Pion_mass_analysis(string CURRENT_TYPE, bool IncludeDisconnected) {
     double Mp = ainv*ip.Mpi;
     double Mp2 = pow(Mp,2);
 
+    
      
-    double SD_FVE = (L>0.0)?(e2/3.0)*ip.Mpi*(1.0/pow(L/ainv,3))*r0*(1 + p.F_m+ p.F_a/(pow(ainv,2))):0.0;
+    double SD_FVE = (L>0.0)?(e2/3.0)*ip.Mpi*(pow(ainv,4)/pow(L,3))*r0*(p.F_m+ p.F_a/(pow(ainv,2))):0.0;
 
      
     double FVE_universal = (L>0.0)?(kappa*alpha/L)*( ip.Mpi + 2.0/L):0.0;
 
     double log_par= p.log;
+
+    //log_par = (3.0 + 16*p.chir/pow(p.f0,4));
+
+    double f0 = p.f0;
+
+    double fitted_value = (e2*pow(f0,2))*( 4.0*p.chir/pow(f0,4) -log_par*(Mp2/pow(4*M_PI*f0,2))*log(Mp2/(pow(4*M_PI*f0,2))));
+
+   
      
-    double fitted_value = 16*M_PI*alpha*p.chir*(1.0/pow(p.f0,2))
-    -(1.0/(4*M_PI))*alpha*(log_par +p.log_a/pow(ainv,2))*Mp2*log( Mp2/(pow(4*M_PI*p.f0,2)))
-    + alpha*Mp2*(1.0/(4.0*M_PI))*p.A_1
+    //double fitted_value = 16*M_PI*alpha*p.chir*(1.0/pow(p.f0,2)) -(1.0/(4*M_PI))*alpha*(log_par +p.log_a/pow(ainv,2))*Mp2*log( Mp2/(pow(4*M_PI*p.f0,2)));
+
+    fitted_value += alpha*Mp2*(1.0/(4.0*M_PI))*p.A_1
     + p.D/pow(ainv,2)
     + SD_FVE - FVE_universal*pow(ainv,2)
     + p.Dm*Mp2/pow(ainv,2)
@@ -521,7 +531,7 @@ void Pion_mass_analysis(string CURRENT_TYPE, bool IncludeDisconnected) {
   };
 
   auto SD_FVE = [](double L, double Mp, double ainv,  double F_a, double F_m) {
-    double SDE =(e2/3.0)*Mp*(1.0/pow(L,3))*pow( ainv,3)*r0*(1 +F_m +  F_a*(1.0/pow(ainv,2)));
+    double SDE =(e2/3.0)*Mp*(1.0/pow(L,3))*pow( ainv,4)*r0*(F_m +  F_a*(1.0/pow(ainv,2)));
     return SDE/pow(ainv,2);
   };
 
@@ -530,6 +540,7 @@ void Pion_mass_analysis(string CURRENT_TYPE, bool IncludeDisconnected) {
 
     double Mp2 = pow(M,2);
     double log_par = p.log;
+    //log_par= 3.0 + 16*p.chir/pow(p.f0,4);
     return  16*M_PI*alpha*p.chir*(1.0/pow(p.f0,2))
     -(1.0/(4*M_PI))*alpha*log_par*Mp2*log( Mp2/(pow(4*M_PI*p.f0,2)))
     + alpha*Mp2*(1.0/(4.0*M_PI))*p.A_1 + p.A_2*pow(Mp2,2);
@@ -674,6 +685,9 @@ void Pion_mass_analysis(string CURRENT_TYPE, bool IncludeDisconnected) {
       
 
   string print_path = (CURRENT_TYPE=="CONSERVED")?"conserved":"local";
+
+
+  
   string exch_or_tot = IncludeDisconnected?"tot":"exch";
   // Set the size of output image to 1200x780 pixels
   plt::figure_size(1200*1.2, 780*1.2);
@@ -695,7 +709,7 @@ void Pion_mass_analysis(string CURRENT_TYPE, bool IncludeDisconnected) {
     
   
  
- 
+  /*
 
    
  
@@ -733,6 +747,8 @@ void Pion_mass_analysis(string CURRENT_TYPE, bool IncludeDisconnected) {
   figure_path = "../plots/Mpi/A40_slice_"+print_path+"_"+exch_or_tot;
   plt::save(figure_path.c_str());
 
+
+  */
   
   //save data in files
   boost::filesystem::create_directory("../data");
@@ -753,10 +769,10 @@ void Pion_mass_analysis(string CURRENT_TYPE, bool IncludeDisconnected) {
 
    
 
-  cout<<"Physical Pion mass difference squared [Mev2]: "<< Boot_ave(Physical_point)*1e+6<<"    "<<Boot_err(Physical_point)*1e+6<<endl;
+  cout<<"Physical Pion mass difference [Mev]: "<< (Boot_ave(Physical_point)/(2.0*MPiPhys))*1e+3<<"    "<<(Boot_err(Physical_point)/(2.0*MPiPhys))*1e+3<<endl;
   cout<<"SU2 ChPT violation: "<<Boot_ave(Violation_SU2)<<"    "<<Boot_err(Violation_SU2)<<endl;
   cout<<"On single branches: "<<endl;
-  for(int ibr=0; ibr<Nbranches;ibr++) cout<<"Branch: "<<ibr<<": "<<Boot_ave(Physical_point[ibr])*1e+6<<"   "<<Boot_err(Physical_point[ibr])*1e+6<<endl;
+  for(int ibr=0; ibr<Nbranches;ibr++) cout<<"Branch: "<<ibr<<": "<<(Boot_ave(Physical_point[ibr])/(2.0*MPiPhys))*1e+3<<"   "<<(Boot_err(Physical_point[ibr])/(2.0*MPiPhys))*1e+3<<endl;
   cout<<"Average chi2:"<<endl;
   for(int ibr=0;ibr<Nbranches;ibr++) cout<<"Branch: "<<ibr<<" chi2 = "<<accumulate(Bt_fit[ibr].chi2.begin(), Bt_fit[ibr].chi2.end(), 0.0)/Bt_fit[ibr].chi2.size()<<endl;
 

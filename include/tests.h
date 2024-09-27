@@ -1,0 +1,14 @@
+#ifndef __tests__
+#define __tests__
+
+#include "numerics.h"
+#include "random.h"
+#include "stat.h"
+
+
+using namespace std;
+
+
+void test();
+
+#endif
